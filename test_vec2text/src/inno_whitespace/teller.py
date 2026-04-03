@@ -235,60 +235,32 @@ class InnoTeller:
         torch.cuda.empty_cache()
 
         # Invert Embeddings -> Text
-        print("  Starting vec2text inversion with Multi-GPU threading...")
+        print("  Loading vec2text corrector (text-embedding-ada-002)...")
+        corrector = vec2text.load_pretrained_corrector("text-embedding-ada-002")
+        corrector = corrector.to(self.device)
         
         embedding_tensor_float = restored_embeddings.float().cpu()
         total = len(embedding_tensor_float)
-        generated_texts = ["[Error]"] * total
+        generated_texts = []
+        batch_size = 2
         print(f"  Inverting {total} embeddings...")
         
-        def _process_batch(start_idx, end_idx, device_id):
-            device_str = f"cuda:{device_id}" if torch.cuda.device_count() > device_id else str(self.device)
-            device_target = torch.device(device_str)
-            
-            print(f"    [Thread {device_id}] Booting vec2text on {device_str} for indices {start_idx} to {end_idx-1}")
-            corrector = vec2text.load_pretrained_corrector("text-embedding-ada-002")
-            corrector = corrector.to(device_target)
-            
-            sub_results = []
-            batch_size = 2
-            for i in range(start_idx, end_idx, batch_size):
-                batch = embedding_tensor_float[i:min(i+batch_size, end_idx)].to(device_target)
-                try:
-                    t_batch_start = time.time()
-                    batch_texts = vec2text.invert_embeddings(
-                        embeddings=batch,
-                        corrector=corrector,
-                        num_steps=num_steps,
-                        sequence_beam_width=sequence_beam_width
-                    )
-                    t_batch_end = time.time()
-                    print(f"    [Thread {device_id}] Inverted batch {i}..{min(i+batch_size, end_idx)-1} in {t_batch_end - t_batch_start:.2f}s")
-                    sub_results.extend(batch_texts)
-                except Exception as e:
-                    print(f"    [Thread {device_id}] Error at batch {i}: {e}")
-                    sub_results.extend(["[Error]"] * len(batch))
-                    
-            print(f"    [Thread {device_id}] Completed {len(sub_results)} inversions.")
-            return start_idx, sub_results
-
-        num_gpus_to_use = min(4, max(1, torch.cuda.device_count()))
-        
-        chunk_size = (total + num_gpus_to_use - 1) // num_gpus_to_use
-        futures = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_gpus_to_use) as executor:
-            for idx in range(num_gpus_to_use):
-                start_idx = idx * chunk_size
-                end_idx = min((idx + 1) * chunk_size, total)
-                if start_idx < total:
-                    futures.append(executor.submit(_process_batch, start_idx, end_idx, idx))
-
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    start_idx, sub_results = future.result()
-                    generated_texts[start_idx:start_idx + len(sub_results)] = sub_results
-                except Exception as exc:
-                    print(f"  Thread generated an exception: {exc}")
+        for i in range(0, total, batch_size):
+            batch = embedding_tensor_float[i:min(i+batch_size, total)].to(self.device)
+            try:
+                t_batch_start = time.time()
+                batch_texts = vec2text.invert_embeddings(
+                    embeddings=batch,
+                    corrector=corrector,
+                    num_steps=num_steps,
+                    sequence_beam_width=sequence_beam_width
+                )
+                t_batch_end = time.time()
+                print(f"    Processed batch {i}..{min(i+batch_size, total)-1} in {t_batch_end - t_batch_start:.2f}s")
+                generated_texts.extend(batch_texts)
+            except Exception as e:
+                print(f"    Error at batch {i}: {e}")
+                generated_texts.extend(["[Error]"] * len(batch))
 
         # Save Results
         results_df = pd.DataFrame({
