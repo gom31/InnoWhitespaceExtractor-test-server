@@ -1,0 +1,28 @@
+[project]
+name = "inno-whitespace"
+version = "0.1.0"
+description = "Automated Vacancy Identification System"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv",
+    "numpy>=2.2.5",
+    "pandas>=2.2.3",
+    "torch>=2.7",
+    "openai>=1.76.2",
+    "scipy>=1.15.2",
+    "scikit-learn>=1.6.1",
+    "vec2text>=0.0.13",
+    "openpyxl>=3.1.5",
+    "tqdm>=4.67.1",
+    "matplotlib>=3.10.1",
+    "tiktoken>=0.8.0",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128"}
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
